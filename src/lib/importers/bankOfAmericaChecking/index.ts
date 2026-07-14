@@ -1,4 +1,5 @@
-import Papa from 'papaparse';
+import { detectEncodingFromText } from '../pipeline/encoding';
+import { parseCsvMatrix as parseCsvMatrixShared } from '../pipeline/parseMatrix';
 import { detect } from './detect';
 import { mapHeaderColumns, normalizeTransactionRows } from './normalize';
 import { parseSummary } from './parseSummary';
@@ -27,26 +28,10 @@ export type {
   SummaryValidation,
 } from './types';
 
-function stripBom(text: string): string {
-  return text.replace(/^\uFEFF/, '');
-}
-
 /** Parse raw CSV text into string[][] with Papa's robust quoted-field mode. */
 export function parseCsvMatrix(text: string): { rows: string[][]; delimiter: string } {
-  const cleaned = stripBom(text);
-  const result = Papa.parse<string[]>(cleaned, {
-    header: false,
-    skipEmptyLines: false,
-    dynamicTyping: false,
-    quoteChar: '"',
-    escapeChar: '"',
-  });
-
-  const rows = (result.data || []).map((row) =>
-    (Array.isArray(row) ? row : [String(row)]).map((c) => String(c ?? ''))
-  );
-  const delimiter = result.meta.delimiter || ',';
-  return { rows, delimiter };
+  const { text: cleaned } = detectEncodingFromText(text);
+  return parseCsvMatrixShared(cleaned);
 }
 
 export function detectFromText(text: string): ImporterDetection | null {

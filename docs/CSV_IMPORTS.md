@@ -74,17 +74,10 @@ Financial calculations performed on floating-point numbers can introduce precisi
 ---
 
 ## 4. Date and Number Parsing
-The normalization engine uses strict parsing layers (`src/lib/importUtils.ts`) to handle variations:
+Deterministic parsers in `src/lib/importers/pipeline/` (wrapped by `src/lib/importUtils.ts`):
 
-* **Dates**: Handled via Javascript's `Date` constructor and formatted to `yyyy-MM-DD` using `date-fns`. Supports common bank formats (e.g., `MM/DD/YYYY`, `YYYY-MM-DD`, `DD-MMM-YYYY`).
-* **Numbers**: Floating values are cleaned of non-numeric symbols (e.g., `$`, commas used as thousands separators) before conversion. Parentheses (accounting notation) are converted to negative numbers:
-  ```typescript
-  // Converts standard banking accounting notations
-  let processedAmount = cleanAmount;
-  if (cleanAmount.startsWith('(') && cleanAmount.endsWith(')')) {
-    processedAmount = `-${cleanAmount.slice(1, -1)}`;
-  }
-  ```
+* **Dates**: Profile-configured formats (`YYYY-MM-DD`, `MM/DD/YYYY`, `DD/MM/YYYY`, …) produce date-only ISO strings with no timezone shift. Ambiguous values (e.g. `04/05/2026` under both MDY and DMY) require confirmation.
+* **Money**: `parseMoney` returns `{ cents?, status: 'valid' | 'blank' | 'invalid' }`. Supports quotes, currency symbols, thousands separators, parentheses negatives, and configurable decimal/thousands separators. Invalid amounts are never treated as zero.
 
 ---
 
@@ -96,13 +89,23 @@ We utilize `PapaParse` under the hood to handle robust CSV files:
 
 ---
 
-## 6. Saved Mapping Profiles
-To prevent users from having to configure column mappings every time they import a file, mappings are stored inside your system database profile.
+## 6. Staged Pipeline & Import Profiles
 
-When a file is imported successfully:
-1. The column configuration (`dateCol`, `descCol`, `amountCol`) is saved.
-2. The mapping is bound specifically to the **Account ID**.
-3. On future uploads to that account, the mapping is prefilled automatically, creating a seamless "One-Click Import" experience.
+Imports run through an explicit local pipeline in `src/lib/importers/pipeline/`:
+
+1. Read bytes → 2. Encoding/BOM → 3. Delimiter → 4. Parse rows → 5. Header discovery →
+6. Metadata regions → 7. Built-in importer or profile → 8. Map columns → 9. Normalize →
+10. Validate → 11. Structural rows → 12. Reconcile → 13. Duplicates → 14. Preview → 15. Atomic commit
+
+**Header discovery** scores the first ~50 rows using field aliases (date, description, amount, debit/credit, running balance, etc.). Users can override the chosen header row. Metadata, footer, and balance-only rows are classified and are **not** inserted as spending/income unless the user converts an opening balance into a snapshot.
+
+**Money / dates**: `parseMoney` returns `{ cents?, status: valid|blank|invalid }` (invalid is never zero). Dates use configured formats; ambiguous MDY/DMY values require confirmation.
+
+**Import profiles** (`import_profiles` IndexedDB store, schema v6+) persist header strategy, aliases, date/amount modes, separators, structural patterns, opening-balance behavior, and delimiter. Legacy `{ dateCol, descCol, amountCol }` objects are migrated via `migrateImportProfile`.
+
+**Atomic commit**: `dbApi.commitImportBatch` writes transactions, snapshots, import record, and optional raw rows in one IndexedDB transaction. Retry with the same `importId` clears prior partial rows for that id first.
+
+**Developer tooling**: Settings → Diagnostics → Import Fixture Lab (`#import-lab`) inspects each stage. Use **Copy sanitized diagnostic** (no names, account values, or full descriptions).
 
 ---
 
@@ -187,6 +190,6 @@ Fictional fixtures: `src/test/fixtures/csv/bankOfAmericaChecking/`.
 Update keyword lists in `src/pages/ImportsPage.tsx` where the fallback column guesser runs.
 
 ### Writing Importer Tests
-- Unit: `src/lib/importers/bankOfAmericaChecking/*.test.ts`, `src/lib/importUtils.test.ts`
+- Unit: `src/lib/importers/pipeline/pipeline.test.ts`, `src/lib/importers/bankOfAmericaChecking/*.test.ts`, `src/lib/importUtils.test.ts`
 - E2E: `tests/e2e/csv-import.spec.ts` (generic mapping path)
 - Run: `npm run test`

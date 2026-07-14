@@ -1,14 +1,11 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStore } from '../store/StoreContext';
 import Papa from 'papaparse';
-import { UploadCloud, CheckCircle2, AlertCircle, HelpCircle, Undo2 } from 'lucide-react';
+import { UploadCloud, CheckCircle2, AlertCircle, HelpCircle, Undo2, Copy } from 'lucide-react';
 import { dbApi } from '../database/db';
 import { format } from 'date-fns';
 import { PageHeader } from '../components/layout/PageHeader';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { processTransactionWithRules } from '../lib/ruleEngine';
-import { normalizeMerchantName } from '../lib/merchantManager';
-import { BalanceSnapshot, ImportRecord, Transaction } from '../models/types';
 import {
   findExactDuplicate,
   findPossibleDuplicate,
@@ -16,12 +13,27 @@ import {
   processCsvData,
   truncateDescription,
 } from '../lib/importUtils';
-import { detectBuiltInImporter } from '../lib/importers/registry';
-import type { BofAParseResult, BofANormalizedRow } from '../lib/importers/bankOfAmericaChecking';
+import {
+  buildSanitizedDiagnostic,
+  formatSanitizedDiagnostic,
+  prepareImportCommit,
+  runGenericImportPipeline,
+  runImportPipeline,
+  type ImportPipelineResult,
+  type OpeningBalanceBehavior,
+} from '../lib/importers/pipeline';
 import { formatCurrency } from '../lib/utils';
 
 type ImportStep = 'upload' | 'mapping' | 'preview' | 'success';
-type OpeningBalanceAction = 'snapshot' | 'ignore' | 'validate_only';
+type PreviewFilter =
+  | 'all'
+  | 'transactions'
+  | 'balance_snapshots'
+  | 'duplicates'
+  | 'recovered'
+  | 'invalid'
+  | 'metadata'
+  | 'summary';
 
 interface ImportsPageProps {
   onNavigate: (view: string) => void;
@@ -60,26 +72,54 @@ function statusLabel(status: string | undefined): string {
   }
 }
 
+function applyDuplicateFlags(
+  rows: ParsedRow[],
+  accountId: string,
+  transactions: Parameters<typeof findExactDuplicate>[1]
+): ParsedRow[] {
+  if (!accountId) return rows;
+  return rows.map((row) => {
+    if (!row.isValid || row.status === 'opening_balance' || row.status === 'summary_metadata') {
+      return row;
+    }
+    if (findExactDuplicate(row, transactions, accountId)) {
+      return { ...row, status: 'exact_duplicate' as const };
+    }
+    if (findPossibleDuplicate(row, transactions, accountId)) {
+      return { ...row, status: 'possible_duplicate' as const };
+    }
+    return row;
+  });
+}
+
 export function ImportsPage({ onNavigate }: ImportsPageProps) {
-  const { accounts, rules, transactions, refreshData } = useStore();
+  const { accounts, rules, transactions, refreshData, settings } = useStore();
   const [step, setStep] = useState<ImportStep>('upload');
   const [fileName, setFileName] = useState('');
   const [csvText, setCsvText] = useState('');
   const [rawData, setRawData] = useState<Record<string, unknown>[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [useCustomMapping, setUseCustomMapping] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [dateCol, setDateCol] = useState('');
   const [descCol, setDescCol] = useState('');
   const [amountCol, setAmountCol] = useState('');
+  const [debitCol, setDebitCol] = useState('');
+  const [creditCol, setCreditCol] = useState('');
+  const [invertSign, setInvertSign] = useState(false);
 
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
-  const [bofaResult, setBofaResult] = useState<BofAParseResult | null>(null);
-  const [detectedFormatNote, setDetectedFormatNote] = useState<string | null>(null);
+  const [pipelineResult, setPipelineResult] = useState<ImportPipelineResult | null>(null);
+  const [headerOverride, setHeaderOverride] = useState<number | undefined>(undefined);
   const [openingBalanceAction, setOpeningBalanceAction] =
-    useState<OpeningBalanceAction>('snapshot');
+    useState<OpeningBalanceBehavior>('snapshot');
+  const [createBalanceSnapshots, setCreateBalanceSnapshots] = useState(true);
   const [includePossibleDuplicates, setIncludePossibleDuplicates] = useState(false);
+  const [previewFilter, setPreviewFilter] = useState<PreviewFilter>('all');
   const [completion, setCompletion] = useState<ImportCompletionStats | null>(null);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [pendingPayloadImportId, setPendingPayloadImportId] = useState<string | null>(null);
 
   const [errorDialog, setErrorDialog] = useState<{ isOpen: boolean; message: string }>({
     isOpen: false,
@@ -91,47 +131,40 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
     setCsvText('');
     setRawData([]);
     setParsedRows([]);
-    setBofaResult(null);
-    setDetectedFormatNote(null);
+    setPipelineResult(null);
+    setHeaderOverride(undefined);
     setUseCustomMapping(false);
     setCompletion(null);
+    setCommitError(null);
+    setPendingPayloadImportId(null);
+    setPreviewFilter('all');
     setStep('upload');
   };
 
-  const applyDuplicateFlags = (rows: ParsedRow[], accountId: string): ParsedRow[] => {
-    if (!accountId) return rows;
-    return rows.map((row) => {
-      if (!row.isValid || row.status === 'opening_balance' || row.status === 'summary_metadata') {
-        return row;
-      }
-      if (findExactDuplicate(row, transactions, accountId)) {
-        return { ...row, status: 'exact_duplicate' as const };
-      }
-      if (findPossibleDuplicate(row, transactions, accountId)) {
-        return { ...row, status: 'possible_duplicate' as const };
-      }
-      return row;
+  const runPipelineFromText = (
+    text: string,
+    accountId: string,
+    opts?: { genericOnly?: boolean; headerRow?: number }
+  ) => {
+    const runner = opts?.genericOnly ? runGenericImportPipeline : runImportPipeline;
+    const result = runner({
+      text,
+      accountId: accountId || undefined,
+      existingTransactions: transactions,
+      headerOverrideIndex: opts?.headerRow ?? headerOverride,
+      profile: {
+        createBalanceSnapshots,
+        openingBalanceBehavior: openingBalanceAction,
+        invertAmountSign: invertSign,
+        amountMode: debitCol && creditCol ? 'debit_credit' : 'signed',
+      },
     });
-  };
-
-  const bofaRowsToParsed = (result: BofAParseResult, accountId: string): ParsedRow[] => {
-    const rows: ParsedRow[] = result.rows
-      .filter((r) => r.kind !== 'skipped')
-      .map((r: BofANormalizedRow) => {
-        const base: ParsedRow = {
-          date: r.postedDate,
-          description: r.originalDescription,
-          amountCents: r.amountCents ?? 0,
-          original: r.rawCells,
-          isValid: r.kind === 'opening_balance' ? !!r.postedDate && r.runningBalanceCents != null : r.include,
-          error: r.error,
-          runningBalanceCents: r.runningBalanceCents,
-          status: r.status,
-          warnings: r.warnings,
-        };
-        return base;
-      });
-    return applyDuplicateFlags(rows, accountId);
+    setPipelineResult(result);
+    if (result.selectedHeader && result.profile.createBalanceSnapshots && result.selectedHeader.confidence >= 0.7) {
+      setCreateBalanceSnapshots(true);
+    }
+    setParsedRows(result.parsedRows);
+    return result;
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -139,52 +172,57 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
     if (!file) return;
 
     setFileName(file.name);
+    setCommitError(null);
     const reader = new FileReader();
     reader.onload = () => {
-      const text = String(reader.result ?? '');
-      setCsvText(text);
-
-      const detected = detectBuiltInImporter(text);
-      if (detected && !useCustomMapping) {
-        const parsed = detected.importer.parse(text);
-        if (parsed) {
-          setBofaResult(parsed);
-          setDetectedFormatNote(detected.importer.formatNote);
-          setParsedRows(bofaRowsToParsed(parsed, selectedAccountId));
-          setStep('mapping');
-          return;
-        }
-      }
-
-      setBofaResult(null);
-      setDetectedFormatNote(null);
-      Papa.parse<Record<string, unknown>>(text, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          setRawData(results.data);
-          const fields = results.meta.fields || [];
-          const guessField = (keywords: string[]) =>
-            fields.find((f) => keywords.some((k) => f.toLowerCase().includes(k))) || '';
-          setDateCol(guessField(['date', 'posted']));
-          setDescCol(guessField(['description', 'payee', 'merchant', 'name']));
-          setAmountCol(guessField(['amount', 'value']));
-          setStep('mapping');
+      const buffer = reader.result as ArrayBuffer;
+      const result = runImportPipeline({
+        bytes: buffer,
+        accountId: selectedAccountId || undefined,
+        existingTransactions: transactions,
+        profile: {
+          createBalanceSnapshots,
+          openingBalanceBehavior: openingBalanceAction,
         },
       });
+      setCsvText(result.text);
+      setPipelineResult(result);
+      setParsedRows(result.parsedRows);
+      setHeaderOverride(undefined);
+      setUseCustomMapping(false);
+      setStep('mapping');
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const processMapping = () => {
-    if (bofaResult && !useCustomMapping) {
-      setParsedRows(bofaRowsToParsed(bofaResult, selectedAccountId));
+    if (!selectedAccountId) {
+      setErrorDialog({ isOpen: true, message: 'Please select a destination account.' });
+      return;
+    }
+
+    if (pipelineResult && !useCustomMapping) {
+      const refreshed = runPipelineFromText(csvText, selectedAccountId, {
+        headerRow: headerOverride,
+      });
+      setParsedRows(
+        applyDuplicateFlags(refreshed.parsedRows, selectedAccountId, transactions)
+      );
       setStep('preview');
       return;
     }
+
     const rows = applyDuplicateFlags(
-      processCsvData(rawData, { dateCol, descCol, amountCol }),
-      selectedAccountId
+      processCsvData(rawData, {
+        dateCol,
+        descCol,
+        amountCol: amountCol || undefined,
+        debitCol: debitCol || undefined,
+        creditCol: creditCol || undefined,
+        invertSign,
+      }),
+      selectedAccountId,
+      transactions
     );
     setParsedRows(rows);
     setStep('preview');
@@ -196,125 +234,66 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
       return;
     }
 
-    const importId = `imp_${Date.now()}`;
-    const now = new Date().toISOString();
-    const snapshotIds: string[] = [];
-    let snapshotsCreated = 0;
-    let exactDuplicatesSkipped = 0;
-    let possibleDuplicatesIncluded = 0;
-    let possibleDuplicatesExcluded = 0;
-    let invalidExcluded = 0;
-    let recoveredImported = 0;
-    let normalImported = 0;
+    const importId = pendingPayloadImportId ?? `imp_${Date.now()}`;
+    setPendingPayloadImportId(importId);
+    setCommitError(null);
 
-    const newTx: Transaction[] = [];
-    const snapshots: BalanceSnapshot[] = [];
-
-    for (let i = 0; i < parsedRows.length; i++) {
-      const r = parsedRows[i];
-
-      if (r.status === 'opening_balance') {
-        if (openingBalanceAction === 'snapshot' && r.runningBalanceCents != null && r.date) {
-          const id = `bs_${importId}_${i}`;
-          snapshotIds.push(id);
-          snapshots.push({
-            id,
-            accountId: selectedAccountId,
-            date: r.date,
-            balanceCents: r.runningBalanceCents,
-            note: 'Opening balance from import',
-            importId,
-            createdAt: now,
-          });
-          snapshotsCreated++;
-        }
-        continue;
-      }
-
-      if (r.status === 'summary_metadata') continue;
-
-      if (!r.isValid || r.status === 'invalid') {
-        invalidExcluded++;
-        continue;
-      }
-
-      if (r.status === 'exact_duplicate') {
-        exactDuplicatesSkipped++;
-        continue;
-      }
-
-      if (r.status === 'possible_duplicate' && !includePossibleDuplicates) {
-        possibleDuplicatesExcluded++;
-        continue;
-      }
-      if (r.status === 'possible_duplicate' && includePossibleDuplicates) {
-        possibleDuplicatesIncluded++;
-      }
-
-      if (r.status === 'recovered') recoveredImported++;
-
-      const initialTx: Transaction = {
-        id: `${importId}_${i}`,
-        accountId: selectedAccountId,
-        importId,
-        postedDate: r.date,
-        originalDescription: r.description,
-        merchantName: normalizeMerchantName(r.description),
-        amountCents: r.amountCents,
-        excludedFromReports: false,
-        isTransfer: false,
-        createdAt: now,
-      };
-      const { transaction } = processTransactionWithRules(initialTx, rules);
-      newTx.push(transaction);
-      normalImported++;
-    }
-
-    if (newTx.length) await dbApi.putTransactions(newTx);
-    if (snapshots.length) await dbApi.putBalanceSnapshots(snapshots);
-
-    const dates = newTx.map((t) => t.postedDate).sort();
-    const record: ImportRecord = {
-      id: importId,
+    const payload = prepareImportCommit({
+      importId,
       accountId: selectedAccountId,
       fileName,
       importDate: format(new Date(), 'yyyy-MM-dd'),
-      startDate: dates[0] ?? bofaResult?.stats.dateRange?.start,
-      endDate: dates[dates.length - 1] ?? bofaResult?.stats.dateRange?.end,
-      rowsProcessed: parsedRows.length,
-      rowsInserted: normalImported,
-      duplicatesSkipped: exactDuplicatesSkipped + possibleDuplicatesExcluded,
-      invalidRows: invalidExcluded,
-      importerId: bofaResult?.detection.id,
-      statementSummary: bofaResult?.summary,
-      snapshotIds,
-    };
-    await dbApi.putImport(record);
+      parsedRows,
+      openingBalanceAction,
+      includePossibleDuplicates,
+      createBalanceSnapshots:
+        createBalanceSnapshots && openingBalanceAction === 'snapshot',
+      rules,
+      importerId: pipelineResult?.importerId,
+      statementSummary: pipelineResult?.summary,
+      retainRawRows: settings.retainRawImportRows,
+    });
 
-    const acc = accounts.find((a) => a.id === selectedAccountId);
-    if (acc) {
-      acc.lastImportedDate = format(new Date(), 'yyyy-MM-dd');
-      await dbApi.putAccount(acc);
+    // Preserve date range from pipeline when no txs
+    if (!payload.record.startDate && pipelineResult?.normalized) {
+      const dates = pipelineResult.normalized
+        .filter((r) => r.kind === 'transaction' && r.postedDate)
+        .map((r) => r.postedDate)
+        .sort();
+      if (dates.length) {
+        payload.record.startDate = dates[0];
+        payload.record.endDate = dates[dates.length - 1];
+      }
     }
 
-    await refreshData();
+    const acc = accounts.find((a) => a.id === selectedAccountId);
+    const accountUpdate = acc
+      ? { ...acc, lastImportedDate: format(new Date(), 'yyyy-MM-dd') }
+      : undefined;
 
-    setCompletion({
-      normalImported,
-      snapshotsCreated,
-      exactDuplicatesSkipped,
-      possibleDuplicatesIncluded,
-      possibleDuplicatesExcluded,
-      invalidExcluded,
-      recoveredImported,
-      runningBalanceMismatches: bofaResult?.runningBalanceValidation.mismatchCount ?? 0,
-      endingBalanceCents: bofaResult?.summary.endingBalanceCents,
-      dateRange: record.startDate && record.endDate
-        ? { start: record.startDate, end: record.endDate }
-        : undefined,
-      importId,
-    });
-    setStep('success');
+    try {
+      await dbApi.commitImportBatch(payload, accountUpdate);
+      await refreshData();
+      setPendingPayloadImportId(null);
+      setCompletion({
+        ...payload.stats,
+        runningBalanceMismatches: pipelineResult?.runningBalanceValidation.mismatchCount ?? 0,
+        endingBalanceCents: pipelineResult?.summary.endingBalanceCents,
+        dateRange:
+          payload.record.startDate && payload.record.endDate
+            ? { start: payload.record.startDate, end: payload.record.endDate }
+            : undefined,
+        importId,
+      });
+      setStep('success');
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Import failed. Preview was preserved — you can retry without duplicating.';
+      setCommitError(message);
+      setErrorDialog({ isOpen: true, message });
+    }
   };
 
   const undoLastImport = async () => {
@@ -324,7 +303,42 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
     resetUpload();
   };
 
-  const isBofaFlow = !!bofaResult && !useCustomMapping;
+  const copyDiagnostic = async () => {
+    if (!pipelineResult) return;
+    const text = formatSanitizedDiagnostic(buildSanitizedDiagnostic(pipelineResult));
+    await navigator.clipboard.writeText(text);
+  };
+
+  const isPipelineFlow = !!pipelineResult && !useCustomMapping;
+
+  const filteredRows = useMemo(() => {
+    return parsedRows.filter((row) => {
+      switch (previewFilter) {
+        case 'transactions':
+          return (
+            row.status === 'new' ||
+            row.status === 'recovered' ||
+            row.status === 'possible_duplicate' ||
+            (!row.status && row.isValid)
+          );
+        case 'balance_snapshots':
+          return row.status === 'opening_balance';
+        case 'duplicates':
+          return row.status === 'exact_duplicate' || row.status === 'possible_duplicate';
+        case 'recovered':
+          return row.status === 'recovered';
+        case 'invalid':
+          return row.status === 'invalid' || !row.isValid;
+        case 'metadata':
+        case 'summary':
+          return row.status === 'summary_metadata';
+        default:
+          return true;
+      }
+    });
+  }, [parsedRows, previewFilter]);
+
+  const showRawNormalized = previewFilter === 'invalid' || previewFilter === 'recovered';
 
   return (
     <div className="flex flex-col h-full max-w-4xl mx-auto w-full">
@@ -379,7 +393,7 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
             </div>
             <h3 className="text-lg font-bold text-on-surface">Drag & drop your CSV file here</h3>
             <p className="text-sm text-on-surface-variant max-w-sm">
-              We support standard bank exports and an observed Bank of America checking format.
+              Header discovery, metadata regions, and balance rows are handled locally.
               <br />
               <span className="font-semibold flex items-center justify-center gap-1 mt-2">
                 Processed locally. Never leaves your device.
@@ -388,7 +402,7 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
             <input
               id="file-upload"
               type="file"
-              accept=".csv"
+              accept=".csv,text/csv"
               className="hidden"
               onChange={handleFileUpload}
             />
@@ -408,8 +422,11 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                 onChange={(e) => {
                   const id = e.target.value;
                   setSelectedAccountId(id);
-                  if (bofaResult && !useCustomMapping) {
-                    setParsedRows(bofaRowsToParsed(bofaResult, id));
+                  if (pipelineResult && !useCustomMapping && csvText) {
+                    const refreshed = runPipelineFromText(csvText, id, {
+                      headerRow: headerOverride,
+                    });
+                    setParsedRows(applyDuplicateFlags(refreshed.parsedRows, id, transactions));
                   }
                 }}
               >
@@ -422,17 +439,58 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
               </select>
             </div>
 
-            {bofaResult && (
-              <div className="rounded-lg border border-outline-variant bg-surface-container-low p-4 space-y-2">
+            {pipelineResult && (
+              <div className="rounded-lg border border-outline-variant bg-surface-container-low p-4 space-y-3">
                 <div className="text-sm font-bold text-on-surface">
-                  Detected: {bofaResult.detection.displayName}
+                  {pipelineResult.importerDisplayName
+                    ? `Detected: ${pipelineResult.importerDisplayName}`
+                    : 'Generic CSV pipeline'}
                 </div>
-                <p className="text-xs text-on-surface-variant">{detectedFormatNote}</p>
-                <p className="text-xs text-on-surface-variant">
-                  Confidence {(bofaResult.detection.confidence * 100).toFixed(0)}% · Header row{' '}
-                  {bofaResult.detection.headerRowIndex + 1} ·{' '}
-                  {bofaResult.detection.dateFormat} · signed amounts
-                </p>
+                {pipelineResult.selectedHeader && (
+                  <p className="text-xs text-on-surface-variant">
+                    Header row {pipelineResult.selectedHeader.rowIndex + 1} · confidence{' '}
+                    {(pipelineResult.selectedHeader.confidence * 100).toFixed(0)}% · delimiter{' '}
+                    {pipelineResult.delimiter === '\t' ? 'TAB' : pipelineResult.delimiter}
+                    {pipelineResult.encoding.bom ? ' · BOM' : ''}
+                  </p>
+                )}
+                {pipelineResult.warnings.length > 0 && (
+                  <ul className="text-xs text-on-surface-variant list-disc pl-4">
+                    {pipelineResult.warnings.slice(0, 4).map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+
+                {pipelineResult.headerCandidates.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-bold text-on-surface-variant mb-1">
+                      Header row override
+                    </label>
+                    <select
+                      className="w-full max-w-md bg-surface-bright border border-outline-variant rounded p-2 text-sm"
+                      value={headerOverride ?? pipelineResult.selectedHeader?.rowIndex ?? 0}
+                      onChange={(e) => {
+                        const idx = Number(e.target.value);
+                        setHeaderOverride(idx);
+                        if (csvText) {
+                          runPipelineFromText(csvText, selectedAccountId, {
+                            genericOnly: !pipelineResult.importerId || useCustomMapping,
+                            headerRow: idx,
+                          });
+                        }
+                      }}
+                    >
+                      {pipelineResult.headerCandidates.slice(0, 12).map((c) => (
+                        <option key={c.rowIndex} value={c.rowIndex}>
+                          Row {c.rowIndex + 1} · {(c.confidence * 100).toFixed(0)}% ·{' '}
+                          {c.headers.filter(Boolean).slice(0, 4).join(' | ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <label className="flex items-center gap-2 text-sm text-on-surface mt-2">
                   <input
                     type="checkbox"
@@ -453,7 +511,9 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                               ) || '';
                             setDateCol(guessField(['date', 'posted']));
                             setDescCol(guessField(['description', 'payee', 'merchant', 'name']));
-                            setAmountCol(guessField(['amount', 'value', 'running']));
+                            setAmountCol(guessField(['amount', 'value']));
+                            setDebitCol(guessField(['debit', 'withdrawal']));
+                            setCreditCol(guessField(['credit', 'deposit']));
                           },
                         });
                       }
@@ -466,7 +526,7 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
 
             <hr className="border-surface-variant" />
 
-            {(!isBofaFlow || useCustomMapping) && (
+            {(!isPipelineFlow || useCustomMapping) && (
               <div>
                 <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
                   <h3 className="text-base font-bold text-on-surface">Map Columns</h3>
@@ -487,19 +547,26 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                 </p>
 
                 <div className="space-y-4 max-w-xl">
-                  {(['Date', 'Description', 'Amount'] as const).map((field) => {
+                  {(
+                    [
+                      ['Date', dateCol, setDateCol],
+                      ['Description', descCol, setDescCol],
+                      ['Amount', amountCol, setAmountCol],
+                      ['Debit', debitCol, setDebitCol],
+                      ['Credit', creditCol, setCreditCol],
+                    ] as const
+                  ).map(([field, val, setVal]) => {
                     const csvFields = Object.keys(rawData[0] || {});
-                    const val = field === 'Date' ? dateCol : field === 'Description' ? descCol : amountCol;
-                    const setVal =
-                      field === 'Date' ? setDateCol : field === 'Description' ? setDescCol : setAmountCol;
-
                     return (
                       <div
                         key={field}
                         className="flex items-center gap-6 p-4 rounded-lg border border-outline-variant bg-surface-container-low"
                       >
                         <div className="w-32 text-sm font-semibold text-on-surface">
-                          {field} <span className="text-error">*</span>
+                          {field}{' '}
+                          {(field === 'Date' || field === 'Description') && (
+                            <span className="text-error">*</span>
+                          )}
                         </div>
                         <select
                           id={`map-${field.toLowerCase()}`}
@@ -517,37 +584,77 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                       </div>
                     );
                   })}
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={invertSign}
+                      onChange={(e) => setInvertSign(e.target.checked)}
+                    />
+                    Invert amount signs (credit-card style)
+                  </label>
                 </div>
               </div>
             )}
 
-            {isBofaFlow && (
-              <div className="space-y-3">
-                <h3 className="text-base font-bold text-on-surface">Opening balance rows</h3>
-                <p className="text-sm text-on-surface-variant">
-                  Rows labeled “Beginning balance as of…” with a blank amount are not income or spending.
-                </p>
-                <div className="space-y-2 text-sm">
-                  {(
-                    [
-                      ['snapshot', 'Import as balance snapshot'],
-                      ['ignore', 'Ignore'],
-                      ['validate_only', 'Use only to validate the imported period'],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <label key={value} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="opening-balance-action"
-                        checked={openingBalanceAction === value}
-                        onChange={() => setOpeningBalanceAction(value)}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
+            <div className="space-y-3">
+              <h3 className="text-base font-bold text-on-surface">Balance rows</h3>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={createBalanceSnapshots}
+                  onChange={(e) => setCreateBalanceSnapshots(e.target.checked)}
+                />
+                Create balance snapshots from recognized balance rows
+              </label>
+              <div className="space-y-2 text-sm">
+                {(
+                  [
+                    ['snapshot', 'Import opening balance as snapshot'],
+                    ['ignore', 'Ignore opening balance rows'],
+                    ['validate_only', 'Use only to validate the imported period'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <label key={value} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="opening-balance-action"
+                      checked={openingBalanceAction === value}
+                      onChange={() => setOpeningBalanceAction(value)}
+                    />
+                    {label}
+                  </label>
+                ))}
               </div>
-            )}
+            </div>
+
+            <div>
+              <button
+                type="button"
+                className="text-xs font-semibold text-on-surface-variant hover:text-on-surface"
+                onClick={() => setShowAdvanced((v) => !v)}
+              >
+                {showAdvanced ? 'Hide' : 'Show'} advanced import settings
+              </button>
+              {showAdvanced && pipelineResult && (
+                <div className="mt-3 text-xs font-mono bg-surface-container-lowest border border-outline-variant rounded-lg p-3 space-y-1 text-on-surface-variant">
+                  <div>amountMode: {pipelineResult.profile.amountMode}</div>
+                  <div>
+                    dateFormat: {String(pipelineResult.profile.dateFormat)}
+                  </div>
+                  <div>
+                    decimal / thousands: {pipelineResult.profile.decimalSeparator} /{' '}
+                    {pipelineResult.profile.thousandsSeparator || '(none)'}
+                  </div>
+                  <div>
+                    header strategy: {pipelineResult.profile.headerDiscoveryStrategy}
+                  </div>
+                  <div>footer: {pipelineResult.profile.footerHandling}</div>
+                  <p className="pt-2 normal-case font-sans">
+                    Edit via Import Fixture Lab (Settings → Diagnostics) or saved import profiles.
+                  </p>
+                </div>
+              )}
+            </div>
 
             <div className="flex justify-between items-center pt-6 border-t border-surface-variant">
               <button
@@ -560,7 +667,8 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                 onClick={processMapping}
                 disabled={
                   !selectedAccountId ||
-                  (!isBofaFlow && (!dateCol || !descCol || !amountCol))
+                  (useCustomMapping &&
+                    (!dateCol || !descCol || (!amountCol && !(debitCol || creditCol))))
                 }
                 className="btn-physical px-6 py-2 rounded-lg text-primary text-sm font-bold disabled:opacity-50"
               >
@@ -579,7 +687,12 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                     <h3 className="text-base font-bold text-on-surface">Review Import</h3>
                   </div>
                   <p className="text-sm text-on-surface-variant mt-1">
-                    {parsedRows.filter((r) => r.isValid && r.status !== 'exact_duplicate' && r.status !== 'opening_balance').length}{' '}
+                    {parsedRows.filter(
+                      (r) =>
+                        r.isValid &&
+                        r.status !== 'exact_duplicate' &&
+                        r.status !== 'opening_balance'
+                    ).length}{' '}
                     ready · {parsedRows.filter((r) => r.status === 'invalid' || !r.isValid).length}{' '}
                     issues
                   </p>
@@ -595,84 +708,100 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                     onClick={confirmImport}
                     className="btn-physical px-6 py-2 rounded-lg text-primary text-sm font-bold"
                   >
-                    Import
+                    {commitError ? 'Retry import' : 'Import'}
                   </button>
                 </div>
               </div>
 
-              {bofaResult && isBofaFlow && (
+              {pipelineResult && isPipelineFlow && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-on-surface-variant">
-                  <div>Format: {bofaResult.detection.displayName}</div>
-                  <div>Header row: {bofaResult.detection.headerRowIndex + 1}</div>
-                  <div>Summary rows: {bofaResult.stats.summaryRowCount}</div>
-                  <div>Tx rows: {bofaResult.stats.transactionRowCount}</div>
+                  <div>Format: {pipelineResult.importerDisplayName ?? 'Generic'}</div>
                   <div>
-                    Date range:{' '}
-                    {bofaResult.stats.dateRange
-                      ? `${bofaResult.stats.dateRange.start} → ${bofaResult.stats.dateRange.end}`
-                      : '—'}
+                    Header row: {(pipelineResult.selectedHeader?.rowIndex ?? 0) + 1}
+                  </div>
+                  <div>
+                    Reconcile:{' '}
+                    {pipelineResult.runningBalanceValidation.status.replace(/_/g, ' ')}
+                  </div>
+                  <div>
+                    Summary: {pipelineResult.summaryValidation.status.replace(/_/g, ' ')}
                   </div>
                   <div>
                     Beginning:{' '}
-                    {bofaResult.summary.beginningBalanceCents != null
-                      ? formatCurrency(bofaResult.summary.beginningBalanceCents)
+                    {pipelineResult.summary.beginningBalanceCents != null
+                      ? formatCurrency(pipelineResult.summary.beginningBalanceCents)
                       : '—'}
                   </div>
                   <div>
                     Ending:{' '}
-                    {bofaResult.summary.endingBalanceCents != null
-                      ? formatCurrency(bofaResult.summary.endingBalanceCents)
+                    {pipelineResult.summary.endingBalanceCents != null
+                      ? formatCurrency(pipelineResult.summary.endingBalanceCents)
                       : '—'}
                   </div>
                   <div>
-                    Credits:{' '}
-                    {bofaResult.summary.totalCreditsCents != null
-                      ? formatCurrency(bofaResult.summary.totalCreditsCents)
-                      : '—'}
+                    Recovered:{' '}
+                    {pipelineResult.normalized.filter((r) => r.recovered).length}
                   </div>
                   <div>
-                    Debits:{' '}
-                    {bofaResult.summary.totalDebitsCents != null
-                      ? formatCurrency(bofaResult.summary.totalDebitsCents)
-                      : '—'}
-                  </div>
-                  <div>Opening markers: {bofaResult.stats.openingBalanceCount}</div>
-                  <div>Valid normal: {bofaResult.stats.validNormalCount}</div>
-                  <div>Invalid: {bofaResult.stats.invalidCount}</div>
-                  <div>Recovered: {bofaResult.stats.recoveredCount}</div>
-                  <div>
-                    Running bal:{' '}
-                    {bofaResult.runningBalanceValidation.mismatchCount === 0
-                      ? `OK (${bofaResult.runningBalanceValidation.rowsReconciled}/${bofaResult.runningBalanceValidation.rowsChecked})`
-                      : `${bofaResult.runningBalanceValidation.mismatchCount} mismatch(es)`}
-                  </div>
-                  <div>
-                    Summary math:{' '}
-                    {bofaResult.summaryValidation.arithmeticOk == null
-                      ? '—'
-                      : bofaResult.summaryValidation.arithmeticOk
-                        ? 'OK'
-                        : 'Mismatch'}
-                  </div>
-                  <div>
-                    End vs last run:{' '}
-                    {bofaResult.summaryValidation.endingMatchesLastRunning == null
-                      ? '—'
-                      : bofaResult.summaryValidation.endingMatchesLastRunning
-                        ? 'OK'
-                        : 'Mismatch'}
+                    Invalid:{' '}
+                    {pipelineResult.normalized.filter((r) => r.kind === 'invalid').length}
                   </div>
                 </div>
               )}
 
-              <label className="flex items-center gap-2 text-xs text-on-surface">
-                <input
-                  type="checkbox"
-                  checked={includePossibleDuplicates}
-                  onChange={(e) => setIncludePossibleDuplicates(e.target.checked)}
-                />
-                Include possible duplicates
-              </label>
+              <div className="flex flex-wrap gap-2 items-center">
+                {(
+                  [
+                    ['all', 'All'],
+                    ['transactions', 'Transactions'],
+                    ['balance_snapshots', 'Balance snapshots'],
+                    ['summary', 'Statement summary'],
+                    ['duplicates', 'Duplicates'],
+                    ['recovered', 'Recovered'],
+                    ['invalid', 'Invalid'],
+                    ['metadata', 'Ignored metadata'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setPreviewFilter(id)}
+                    className={`px-2 py-1 rounded text-[11px] font-semibold border ${
+                      previewFilter === id
+                        ? 'bg-primary text-on-primary border-primary'
+                        : 'border-outline-variant text-on-surface-variant'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-4 items-center">
+                <label className="flex items-center gap-2 text-xs text-on-surface">
+                  <input
+                    type="checkbox"
+                    checked={includePossibleDuplicates}
+                    onChange={(e) => setIncludePossibleDuplicates(e.target.checked)}
+                  />
+                  Include possible duplicates
+                </label>
+                {pipelineResult && (
+                  <button
+                    type="button"
+                    onClick={copyDiagnostic}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-on-surface-variant hover:text-on-surface"
+                  >
+                    <Copy size={12} />
+                    Copy sanitized diagnostic
+                  </button>
+                )}
+              </div>
+              {commitError && (
+                <p className="text-xs text-error">
+                  Last commit failed. Preview preserved — retry will not duplicate (same import id).
+                </p>
+              )}
             </div>
 
             <div className="flex-1 overflow-auto">
@@ -682,11 +811,12 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4">Date</th>
                     <th className="py-3 px-4">Description</th>
+                    {showRawNormalized && <th className="py-3 px-4">Raw</th>}
                     <th className="py-3 px-4 text-right">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-container-low">
-                  {parsedRows.map((row, i) => (
+                  {filteredRows.map((row, i) => (
                     <tr
                       key={i}
                       className={`h-10 ${
@@ -711,6 +841,13 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
                       <td className="py-2 px-4 font-medium truncate max-w-sm">
                         {truncateDescription(row.description, 72)}
                       </td>
+                      {showRawNormalized && (
+                        <td className="py-2 px-4 text-[11px] text-on-surface-variant font-mono truncate max-w-[10rem]">
+                          {Array.isArray(row.original)
+                            ? truncateDescription(row.original.join('|'), 40)
+                            : truncateDescription(JSON.stringify(row.original), 40)}
+                        </td>
+                      )}
                       <td
                         className={`py-2 px-4 text-right tabular-nums ${
                           row.amountCents < 0 ? 'text-on-surface' : 'text-primary font-medium'
@@ -790,7 +927,7 @@ export function ImportsPage({ onNavigate }: ImportsPageProps) {
 
       <ConfirmDialog
         isOpen={errorDialog.isOpen}
-        title="Validation Error"
+        title={commitError ? 'Import Failed' : 'Validation Error'}
         message={errorDialog.message}
         isDestructive={true}
         confirmLabel="OK"

@@ -20,6 +20,7 @@ import { RecurringPage } from './pages/RecurringPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { InvestmentsPage } from './pages/InvestmentsPage';
 import { GuidePage } from './pages/GuidePage';
+import { ImportFixtureLabPage } from './pages/ImportFixtureLabPage';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState(() => {
@@ -90,6 +91,8 @@ function AppContent() {
         return <PrivacyPage />;
       case 'guide':
         return <GuidePage onNavigate={navigateTo} />;
+      case 'import-lab':
+        return <ImportFixtureLabPage onNavigate={navigateTo} />;
       default:
         return (
           <div className="flex items-center justify-center h-full text-on-surface-variant">

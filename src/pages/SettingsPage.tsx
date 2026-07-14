@@ -543,6 +543,21 @@ export function SettingsPage({ onNavigate }: { onNavigate: (v: string) => void }
                     <p>TIMESTAMP: {new Date().toISOString()}</p>
                   </div>
                 </div>
+                <div className="card-raised p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold">Import Fixture Lab</p>
+                    <p className="text-xs text-on-surface-variant">
+                      Developer-only staged CSV pipeline inspector (local fixtures).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-sm"
+                    onClick={() => onNavigate('import-lab')}
+                  >
+                    Open Lab
+                  </button>
+                </div>
               </section>
             )}
           </div>

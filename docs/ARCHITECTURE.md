@@ -126,7 +126,7 @@ The ingestion pipeline is designed as an ordered transaction pipeline:
 [Saved local Records — undoable by import batch]
 ```
 
-Built-in importers (e.g. observed Bank of America checking) live under `src/lib/importers/` and register via `registry.ts`. Generic column mapping remains the fallback.
+Built-in importers (e.g. observed Bank of America checking) live under `src/lib/importers/` and register via `registry.ts`. Shared stages (header discovery, recovery, money/date parsing, reconciliation, atomic commit) live under `src/lib/importers/pipeline/`. Generic column mapping remains the fallback. Developer inspection: `#import-lab`.
 ---
 
 ## 6. Deterministic Rule Execution Engine

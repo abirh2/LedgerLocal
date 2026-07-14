@@ -1,5 +1,8 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { Account, Transaction, Category, CategoryGroup, Budget, ImportRecord, RecurringOverride, BalanceSnapshot, InvestmentTransaction, Holding, PriceSnapshot, AccountValuation, Rule, Merchant, TransferMatch, UserSettings } from '../models/types';
+import type { ImportProfile } from '../lib/importers/pipeline/types';
+import { migrateImportProfile } from '../lib/importers/pipeline/profiles';
+import type { CommitImportPayload } from '../lib/importers/pipeline/commit';
 
 interface LedgerDB extends DBSchema {
   accounts: {
@@ -54,6 +57,14 @@ interface LedgerDB extends DBSchema {
   imports: {
     key: string;
     value: ImportRecord;
+  };
+  import_profiles: {
+    key: string;
+    value: ImportProfile;
+  };
+  import_raw_rows: {
+    key: string;
+    value: { importId: string; rows: unknown[] };
   };
   recurring_overrides: {
     key: string;
@@ -120,7 +131,7 @@ export function initDB(profileId?: string) {
   
   if (!dbPromise || targetId !== currentProfileId) {
     currentProfileId = targetId;
-    dbPromise = openDB<LedgerDB>(`ledger-local-profile-${targetId}`, 5, {
+    dbPromise = openDB<LedgerDB>(`ledger-local-profile-${targetId}`, 6, {
       upgrade(db, oldVersion, newVersion, transaction) {
         if (oldVersion < 1) {
           db.createObjectStore('accounts', { keyPath: 'id' });
@@ -191,6 +202,15 @@ export function initDB(profileId?: string) {
             const transferStore = db.createObjectStore('transfer_matches', { keyPath: 'id' });
             transferStore.createIndex('by-tx1', 'tx1Id');
             transferStore.createIndex('by-tx2', 'tx2Id');
+          }
+        }
+
+        if (oldVersion < 6) {
+          if (!db.objectStoreNames.contains('import_profiles')) {
+            db.createObjectStore('import_profiles', { keyPath: 'id' });
+          }
+          if (!db.objectStoreNames.contains('import_raw_rows')) {
+            db.createObjectStore('import_raw_rows', { keyPath: 'importId' });
           }
         }
       },
@@ -420,11 +440,107 @@ export const dbApi = {
     const db = await initDB();
     await db.delete('imports', id);
   },
-  /** Undo one import batch: transactions + balance snapshots + import record. */
+  /**
+   * Atomic import commit: transactions + snapshots + import record (+ optional raw rows)
+   * in one IndexedDB transaction. Failure leaves no partial batch.
+   * Idempotent on retry: clears any prior rows for the same importId first inside the TX.
+   */
+  async commitImportBatch(
+    payload: CommitImportPayload,
+    accountUpdate?: Account
+  ): Promise<void> {
+    const db = await initDB();
+    const storeNames = [
+      'transactions',
+      'balance_snapshots',
+      'imports',
+      'import_raw_rows',
+      ...(accountUpdate ? (['accounts'] as const) : []),
+    ] as const;
+    const tx = db.transaction([...storeNames], 'readwrite');
+
+    try {
+      // Clear any partial prior attempt with the same importId (retry safety)
+      const allTx = await tx.objectStore('transactions').getAll();
+      for (const t of allTx) {
+        if (t.importId === payload.importId) {
+          await tx.objectStore('transactions').delete(t.id);
+        }
+      }
+      const allSnaps = await tx.objectStore('balance_snapshots').getAll();
+      for (const s of allSnaps) {
+        if (s.importId === payload.importId) {
+          await tx.objectStore('balance_snapshots').delete(s.id);
+        }
+      }
+      await tx.objectStore('imports').delete(payload.importId);
+      await tx.objectStore('import_raw_rows').delete(payload.importId);
+
+      for (const t of payload.transactions) {
+        await tx.objectStore('transactions').put(t);
+      }
+      for (const s of payload.snapshots) {
+        await tx.objectStore('balance_snapshots').put(s);
+      }
+      await tx.objectStore('imports').put(payload.record);
+      if (payload.rawRows) {
+        await tx.objectStore('import_raw_rows').put(payload.rawRows);
+      }
+      if (accountUpdate) {
+        await tx.objectStore('accounts').put(accountUpdate);
+      }
+      await tx.done;
+    } catch (err) {
+      tx.abort();
+      throw err;
+    }
+  },
+
+  /** Undo one import batch: transactions + balance snapshots + import record + raw rows. */
   async undoImportBatch(importId: string) {
-    await this.deleteTransactionsByImportId(importId);
-    await this.deleteBalanceSnapshotsByImportId(importId);
-    await this.deleteImport(importId);
+    const db = await initDB();
+    const tx = db.transaction(
+      ['transactions', 'balance_snapshots', 'imports', 'import_raw_rows'],
+      'readwrite'
+    );
+    const allTx = await tx.objectStore('transactions').getAll();
+    for (const t of allTx) {
+      if (t.importId === importId) await tx.objectStore('transactions').delete(t.id);
+    }
+    const allSnaps = await tx.objectStore('balance_snapshots').getAll();
+    for (const s of allSnaps) {
+      if (s.importId === importId) await tx.objectStore('balance_snapshots').delete(s.id);
+    }
+    await tx.objectStore('imports').delete(importId);
+    await tx.objectStore('import_raw_rows').delete(importId);
+    await tx.done;
+  },
+
+  async getImportProfiles() {
+    const db = await initDB();
+    const all = await db.getAll('import_profiles');
+    return all.map(migrateImportProfile);
+  },
+  async getImportProfile(id: string) {
+    const db = await initDB();
+    const raw = await db.get('import_profiles', id);
+    return raw ? migrateImportProfile(raw) : undefined;
+  },
+  async putImportProfile(profile: ImportProfile) {
+    const db = await initDB();
+    const migrated = migrateImportProfile({
+      ...profile,
+      updatedAt: new Date().toISOString(),
+    });
+    await db.put('import_profiles', migrated);
+  },
+  async deleteImportProfile(id: string) {
+    const db = await initDB();
+    await db.delete('import_profiles', id);
+  },
+  async getImportRawRows(importId: string) {
+    const db = await initDB();
+    return db.get('import_raw_rows', importId);
   },
 
   // Investments
@@ -508,7 +624,8 @@ export const dbApi = {
   async clearAll() {
     const db = await initDB();
     const stores = [
-      'accounts', 'transactions', 'categories', 'category_groups', 'budgets', 'rules', 'merchants', 'transfer_matches', 'imports', 
+      'accounts', 'transactions', 'categories', 'category_groups', 'budgets', 'rules', 'merchants', 'transfer_matches', 'imports',
+      'import_profiles', 'import_raw_rows',
       'recurring_overrides', 'balance_snapshots', 'investment_transactions', 
       'holdings', 'price_snapshots', 'account_valuations'
     ] as any;
