@@ -1,0 +1,6 @@
+{
+  "name": "LedgerLocal",
+  "description": "Private, offline-first personal finance desktop application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
