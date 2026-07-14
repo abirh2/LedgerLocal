@@ -61,6 +61,15 @@ export interface Budget {
   rollover: boolean;
 }
 
+export interface AccountStatementSummary {
+  beginningBalanceCents?: number;
+  beginningBalanceDate?: string;
+  totalCreditsCents?: number;
+  totalDebitsCents?: number;
+  endingBalanceCents?: number;
+  endingBalanceDate?: string;
+}
+
 export interface ImportRecord {
   id: string;
   accountId: string;
@@ -72,6 +81,9 @@ export interface ImportRecord {
   rowsInserted: number;
   duplicatesSkipped: number;
   invalidRows: number;
+  importerId?: string;
+  statementSummary?: AccountStatementSummary;
+  snapshotIds?: string[];
 }
 
 export interface BalanceSnapshot {
@@ -80,6 +92,7 @@ export interface BalanceSnapshot {
   date: string; // YYYY-MM-DD
   balanceCents: number;
   note?: string;
+  importId?: string;
   createdAt: string;
 }
 

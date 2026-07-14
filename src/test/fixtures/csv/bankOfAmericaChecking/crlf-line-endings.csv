@@ -1,0 +1,10 @@
+Description,,Summary Amt.
+Beginning balance as of 02/01/2026,,"500.00"
+Total credits,,"100.00"
+Total debits,,"-25.00"
+Ending balance as of 02/05/2026,,"575.00"
+
+Date,Description,Amount,Running Bal.
+02/01/2026,Beginning balance as of 02/01/2026,,"500.00"
+02/03/2026,"PAYROLL FICTIONAL EMPLOYER","100.00","600.00"
+02/04/2026,"GROCERY STORE #1","-25.00","575.00"

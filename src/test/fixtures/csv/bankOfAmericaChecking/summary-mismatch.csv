@@ -1,0 +1,10 @@
+Description,,Summary Amt.
+Beginning balance as of 10/01/2026,,"100.00"
+Total credits,,"50.00"
+Total debits,,"-10.00"
+Ending balance as of 10/03/2026,,"999.99"
+
+Date,Description,Amount,Running Bal.
+10/01/2026,Beginning balance as of 10/01/2026,,"100.00"
+10/02/2026,"CREDIT OK","50.00","150.00"
+10/03/2026,"DEBIT OK","-10.00","140.00"

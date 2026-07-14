@@ -110,22 +110,23 @@ The ingestion pipeline is designed as an ordered transaction pipeline:
 ```
 [Raw CSV File] 
     │
-    ▼ (PapaParse)
-[Raw Row Objects] 
+    ▼ (PapaParse — headerless for built-in importers)
+[Format detect: registry / custom mapper]
     │
-    ▼ (Column Mapper: Date, Desc, Amount)
-[Normalized In-Memory Records] 
+    ▼ (Built-in normalizer OR column mapping)
+[Normalized In-Memory Records + optional statement summary]
     │
-    ▼ (Deduplication Engine: Similarity checks)
-[Unique Rows] 
+    ▼ (Duplicate flags + opening-balance handling)
+[Review preview]
     │
     ▼ (Deterministic Rule Engine)
-[Categorized Transactions] 
+[Categorized Transactions (+ optional balance snapshots)]
     │
-    ▼ (IndexedDB Transaction)
-[Saved local Records]
+    ▼ (IndexedDB Transaction, importId batch)
+[Saved local Records — undoable by import batch]
 ```
 
+Built-in importers (e.g. observed Bank of America checking) live under `src/lib/importers/` and register via `registry.ts`. Generic column mapping remains the fallback.
 ---
 
 ## 6. Deterministic Rule Execution Engine

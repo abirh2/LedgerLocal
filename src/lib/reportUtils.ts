@@ -1,5 +1,5 @@
 import { Transaction } from '../models/types';
-import { startOfMonth, endOfMonth, eachMonthOfInterval, format, parseISO } from 'date-fns';
+import { eachMonthOfInterval, format } from 'date-fns';
 
 export interface ReportDataPoint {
   date: string;
@@ -14,33 +14,29 @@ export function calculateIncomeVsSpending(
   endDate: Date
 ): ReportDataPoint[] {
   const months = eachMonthOfInterval({ start: startDate, end: endDate });
-  
-  return months.map(month => {
-    const monthStart = startOfMonth(month);
-    const monthEnd = endOfMonth(month);
+
+  return months.map((month) => {
+    const monthKey = format(month, 'yyyy-MM');
     const monthStr = format(month, 'MMM yyyy');
-    
+
     let income = 0;
     let spending = 0;
-    
-    transactions.forEach(tx => {
+
+    transactions.forEach((tx) => {
       if (tx.excludedFromReports || tx.isTransfer) return;
-      
-      const txDate = parseISO(tx.postedDate);
-      if (txDate >= monthStart && txDate <= monthEnd) {
-        if (tx.amountCents > 0) {
-          income += tx.amountCents;
-        } else {
-          spending += Math.abs(tx.amountCents);
-        }
+      if (tx.postedDate.slice(0, 7) !== monthKey) return;
+      if (tx.amountCents > 0) {
+        income += tx.amountCents;
+      } else {
+        spending += Math.abs(tx.amountCents);
       }
     });
-    
+
     return {
       date: monthStr,
       income: income / 100,
       spending: spending / 100,
-      savings: (income - spending) / 100
+      savings: (income - spending) / 100,
     };
   });
 }

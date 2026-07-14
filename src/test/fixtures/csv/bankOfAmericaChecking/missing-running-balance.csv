@@ -1,0 +1,10 @@
+Description,,Summary Amt.
+Beginning balance as of 08/01/2026,,"100.00"
+Total credits,,"10.00"
+Total debits,,"0.00"
+Ending balance as of 08/03/2026,,"110.00"
+
+Date,Description,Amount,Running Bal.
+08/01/2026,Beginning balance as of 08/01/2026,,"100.00"
+08/02/2026,"CREDIT WITHOUT BALANCE","10.00",
+08/03/2026,"FOLLOW UP TX","0.00","110.00"

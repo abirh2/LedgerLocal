@@ -32,8 +32,8 @@ describe('reportUtils', () => {
 
   describe('calculateIncomeVsSpending', () => {
     it('calculates correctly for a given month', () => {
-      const start = new Date('2026-07-01');
-      const end = new Date('2026-07-31');
+      const start = new Date(2026, 6, 1);
+      const end = new Date(2026, 6, 31);
       const results = calculateIncomeVsSpending(transactions, start, end);
       
       expect(results).toHaveLength(1);

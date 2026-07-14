@@ -22,7 +22,7 @@ describe('budgetUtils', () => {
     }
   ];
 
-  const currentMonth = new Date('2026-07-01');
+  const currentMonth = new Date(2026, 6, 1); // July 2026, local — avoid UTC date-only shift
 
   describe('calculateMonthSpending', () => {
     it('calculates spending for the correct month', () => {

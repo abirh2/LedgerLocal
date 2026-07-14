@@ -1,0 +1,10 @@
+Description,,Summary Amt.
+Beginning balance as of 09/01/2026,,"100.00"
+Total credits,,"50.00"
+Total debits,,"-10.00"
+Ending balance as of 09/03/2026,,"140.00"
+
+Date,Description,Amount,Running Bal.
+09/01/2026,Beginning balance as of 09/01/2026,,"100.00"
+09/02/2026,"GOOD CREDIT","50.00","150.00"
+09/03/2026,"MISMATCHED DEBIT","-10.00","999.00"

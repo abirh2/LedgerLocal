@@ -1,5 +1,5 @@
 import { Transaction, Budget, Category } from '../models/types';
-import { startOfMonth, endOfMonth } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
 export interface CategoryBudgetData {
   categoryId: string;
@@ -14,22 +14,22 @@ export interface CategoryBudgetData {
   status: 'on-track' | 'near-limit' | 'over-budget' | 'no-spending' | 'no-budget';
 }
 
+function monthKey(month: Date): string {
+  return format(month, 'yyyy-MM');
+}
+
 export function calculateMonthSpending(transactions: Transaction[], month: Date): Record<string, number> {
-  const start = startOfMonth(month);
-  const end = endOfMonth(month);
-  
+  const key = monthKey(month);
   const spending: Record<string, number> = {};
-  
+
   for (const tx of transactions) {
     if (tx.excludedFromReports || tx.isTransfer || !tx.categoryId) continue;
-    
-    const txDate = new Date(tx.postedDate);
-    if (txDate >= start && txDate <= end) {
-      if (!spending[tx.categoryId]) spending[tx.categoryId] = 0;
-      spending[tx.categoryId] += -tx.amountCents; // Invert so positive means we spent money
-    }
+    // Compare YYYY-MM on the date-only string — avoid Date UTC/local day shift
+    if (tx.postedDate.slice(0, 7) !== key) continue;
+    if (!spending[tx.categoryId]) spending[tx.categoryId] = 0;
+    spending[tx.categoryId] += -tx.amountCents;
   }
-  
+
   return spending;
 }
 
@@ -39,16 +39,16 @@ export function getCategoryBudgetData(
   transactions: Transaction[],
   currentMonth: Date
 ): CategoryBudgetData[] {
-  const currentMonthStr = currentMonth.toISOString().slice(0, 7); // YYYY-MM
-  const prevMonth = new Date(currentMonth);
+  const currentMonthStr = monthKey(currentMonth);
+  const prevMonth = parseISO(`${currentMonthStr}-01`);
   prevMonth.setMonth(prevMonth.getMonth() - 1);
-  const prevMonthStr = prevMonth.toISOString().slice(0, 7);
+  const prevMonthStr = monthKey(prevMonth);
 
   const spendingByCategory = calculateMonthSpending(transactions, currentMonth);
   const prevMonthSpending = calculateMonthSpending(transactions, prevMonth);
 
-  const currentMonthBudgets = budgets.filter(b => b.month === currentMonthStr);
-  const prevMonthBudgets = budgets.filter(b => b.month === prevMonthStr);
+  const currentMonthBudgets = budgets.filter((b) => b.month === currentMonthStr);
+  const prevMonthBudgets = budgets.filter((b) => b.month === prevMonthStr);
 
   return categories.map(cat => {
     const budget = currentMonthBudgets.find(b => b.categoryId === cat.id);

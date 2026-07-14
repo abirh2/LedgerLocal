@@ -227,6 +227,21 @@ export const dbApi = {
     }
     await tx.done;
   },
+  async deleteTransaction(id: string) {
+    const db = await initDB();
+    await db.delete('transactions', id);
+  },
+  async deleteTransactionsByImportId(importId: string) {
+    const db = await initDB();
+    const all = await db.getAll('transactions');
+    const tx = db.transaction('transactions', 'readwrite');
+    for (const t of all) {
+      if (t.importId === importId) {
+        await tx.store.delete(t.id);
+      }
+    }
+    await tx.done;
+  },
 
   // Categories
   async getCategories() {
@@ -379,6 +394,37 @@ export const dbApi = {
       tx.store.put(s);
     }
     await tx.done;
+  },
+  async deleteBalanceSnapshotsByImportId(importId: string) {
+    const db = await initDB();
+    const all = await db.getAll('balance_snapshots');
+    const tx = db.transaction('balance_snapshots', 'readwrite');
+    for (const s of all) {
+      if (s.importId === importId) {
+        await tx.store.delete(s.id);
+      }
+    }
+    await tx.done;
+  },
+
+  // Imports
+  async getImports() {
+    const db = await initDB();
+    return db.getAll('imports');
+  },
+  async putImport(record: ImportRecord) {
+    const db = await initDB();
+    await db.put('imports', record);
+  },
+  async deleteImport(id: string) {
+    const db = await initDB();
+    await db.delete('imports', id);
+  },
+  /** Undo one import batch: transactions + balance snapshots + import record. */
+  async undoImportBatch(importId: string) {
+    await this.deleteTransactionsByImportId(importId);
+    await this.deleteBalanceSnapshotsByImportId(importId);
+    await this.deleteImport(importId);
   },
 
   // Investments

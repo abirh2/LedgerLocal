@@ -9,6 +9,7 @@ import { findTransferCandidates } from '../lib/transferMatcher';
 import { processTransactionWithRules } from '../lib/ruleEngine';
 import { normalizeMerchantName } from '../lib/merchantManager';
 import { Transaction, TransferMatch } from '../models/types';
+import { truncateDescription } from '../lib/importUtils';
 
 interface TransactionsPageProps {
   onNavigate: (view: string) => void;
@@ -22,6 +23,7 @@ export function TransactionsPage({ onNavigate }: { onNavigate: (v: string) => vo
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [showTransfers, setShowTransfers] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [detailTxId, setDetailTxId] = useState<string | null>(null);
 
   const [txForm, setTxForm] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -324,7 +326,16 @@ export function TransactionsPage({ onNavigate }: { onNavigate: (v: string) => vo
                         {tx.isRefund && <RefreshCw size={12} className="text-success" title="Refund" />}
                       </div>
                     </td>
-                    <td className="py-2 px-2 truncate text-on-surface-variant hidden md:table-cell text-[10px]">{tx.originalDescription}</td>
+                    <td className="py-2 px-2 truncate text-on-surface-variant hidden md:table-cell text-[10px]">
+                      <button
+                        type="button"
+                        className="truncate max-w-full text-left hover:underline"
+                        onClick={() => setDetailTxId(tx.id)}
+                        title="View full description"
+                      >
+                        {truncateDescription(tx.originalDescription, 48)}
+                      </button>
+                    </td>
                     <td className="py-2 px-2">
                       {isEditing ? (
                         <select 
@@ -373,6 +384,54 @@ export function TransactionsPage({ onNavigate }: { onNavigate: (v: string) => vo
           </table>
         </div>
       </div>
+      {detailTxId && (() => {
+        const detailTx = transactions.find((t) => t.id === detailTxId);
+        if (!detailTx) return null;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex justify-end bg-black/40"
+            onClick={() => setDetailTxId(null)}
+            role="presentation"
+          >
+            <aside
+              className="w-full max-w-md h-full bg-surface shadow-xl p-6 overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-label="Transaction details"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-bold text-on-surface">Transaction details</h3>
+                <button
+                  type="button"
+                  onClick={() => setDetailTxId(null)}
+                  className="p-1 rounded hover:bg-surface-container"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <dl className="space-y-3 text-sm">
+                <div>
+                  <dt className="text-xs font-bold uppercase text-on-surface-variant">Merchant</dt>
+                  <dd className="text-on-surface">{detailTx.merchantName}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-bold uppercase text-on-surface-variant">Original description</dt>
+                  <dd className="text-on-surface whitespace-pre-wrap break-words">{detailTx.originalDescription}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-bold uppercase text-on-surface-variant">Date</dt>
+                  <dd className="tabular-nums">{detailTx.postedDate}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-bold uppercase text-on-surface-variant">Amount</dt>
+                  <dd className="tabular-nums">{formatCurrency(detailTx.amountCents)}</dd>
+                </div>
+              </dl>
+            </aside>
+          </div>
+        );
+      })()}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-surface-container-lowest w-full max-w-md rounded-3xl shadow-2xl border border-outline-variant p-6 space-y-6 animate-in zoom-in-95 duration-200">

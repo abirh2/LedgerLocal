@@ -14,7 +14,8 @@ This document explains the technical specification, normalization pipelines, and
 7. [Validation Engine](#validation-engine)
 8. [Duplicate Detection Heuristics](#duplicate-detection-heuristics)
 9. [Fictional Bank CSV Examples](#fictional-bank-csv-examples)
-10. [Developer Guidelines: Extending the Importer](#developer-guidelines-extending-the-importer)
+10. [Built-in Importers (Observed Formats)](#10-built-in-importers-observed-formats)
+11. [Developer Guidelines: Extending the Importer](#11-developer-guidelines-extending-the-importer)
 
 ---
 
@@ -153,24 +154,39 @@ Posted Date,Merchant,Charge,Reference No
 
 ---
 
-## 10. Developer Guidelines: Extending the Importer
+## 10. Built-in Importers (Observed Formats)
 
-### Adding Default Heuristic Guesses
-If you wish to add default header support for a new financial institution, update `src/pages/ImportsPage.tsx` where guessing occurs:
+Built-in importers live under `src/lib/importers/` and register through `src/lib/importers/registry.ts`. Detection is **structural** (row contents), not filename-based. When detection fails or the user opts out, the generic column mapper remains available.
 
-```typescript
-// Auto-guess columns based on common bank headers
-const guessField = (keywords: string[]) => fields.find(f => keywords.some(k => f.toLowerCase().includes(k))) || '';
+### Bank of America Checking (`bank-of-america-checking`)
 
-setDateCol(guessField(['date', 'posted', 'trans_date', 'posted_date']));
-setDescCol(guessField(['description', 'payee', 'merchant', 'name', 'payee_name']));
-setAmountCol(guessField(['amount', 'value', 'charge', 'amt']));
-```
+Supports an **observed** Bank of America checking-account CSV structure — not a claim of official or universal BoA compatibility. Other BoA products/exports may differ.
+
+Typical layout signals:
+* Summary header: `Description`, `Summary Amt.`
+* Summary labels: beginning balance, total credits, total debits, ending balance
+* Transaction header (discovered dynamically): `Date`, `Description`, `Amount`, `Running Bal.`
+* Signed amounts (positive inflows / negative outflows), `MM/DD/YYYY` dates
+* Optional opening-balance marker (blank amount, populated running balance)
+
+Modules: `detect.ts`, `parseSummary.ts`, `normalize.ts`, `validateBalances.ts`, `index.ts`.
+
+Fictional fixtures: `src/test/fixtures/csv/bankOfAmericaChecking/`.
+
+---
+
+## 11. Developer Guidelines: Extending the Importer
+
+### Adding a built-in importer
+1. Add a folder under `src/lib/importers/<name>/` implementing detect + parse behind the same shape as `BuiltInImporter` in `registry.ts`.
+2. Register it in `builtInImporters`.
+3. Keep bank-specific logic out of generic UI components — `ImportsPage` should only consume the registry.
+4. Add fictional fixtures only (never real bank data).
+
+### Adding Default Heuristic Guesses (generic mapper)
+Update keyword lists in `src/pages/ImportsPage.tsx` where the fallback column guesser runs.
 
 ### Writing Importer Tests
-All import utilities are fully tested in `tests/e2e/csv-import.spec.ts` and `src/pages/ImportsPage.test.tsx`. When editing import pipelines:
-1. Ensure your changes do not break existing test specs.
-2. Add a fictional fixture CSV file to `src/test/fixtures/` and run the Vitest command to verify parsing logic:
-   ```bash
-   npm run test
-   ```
+- Unit: `src/lib/importers/bankOfAmericaChecking/*.test.ts`, `src/lib/importUtils.test.ts`
+- E2E: `tests/e2e/csv-import.spec.ts` (generic mapping path)
+- Run: `npm run test`
