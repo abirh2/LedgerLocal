@@ -111,7 +111,7 @@ describe('header discovery', () => {
   });
 
   it('respects header override', () => {
-    const text = load(BOFA, 'normal-structure.csv');
+    const text = load(BOFA, 'standard.csv');
     const { rows } = parseCsvMatrix(text);
     const candidates = discoverHeaderCandidates(rows, {
       ...profile,
@@ -124,13 +124,13 @@ describe('header discovery', () => {
 
 describe('generic + built-in pipeline', () => {
   it.each([
-    'normal-structure.csv',
+    'standard.csv',
     'summary-blank-header.csv',
     'shifted-header.csv',
-    'quoted-thousands.csv',
-    'with-bom.csv',
-    'crlf-line-endings.csv',
-    'malformed-quotes.csv',
+    'quoted-commas.csv',
+    'utf8-bom.csv',
+    'windows-line-endings.csv',
+    'malformed-description-quote.csv',
     'opening-balance-only.csv',
   ])('handles BoA fixture %s', (file) => {
     const result = runImportPipeline({ text: load(BOFA, file) });
@@ -156,10 +156,10 @@ describe('generic + built-in pipeline', () => {
   });
 
   it('sanitized diagnostic has no full descriptions', () => {
-    const result = runImportPipeline({ text: load(BOFA, 'normal-structure.csv') });
+    const result = runImportPipeline({ text: load(BOFA, 'standard.csv') });
     const d = buildSanitizedDiagnostic(result);
     const json = JSON.stringify(d);
-    expect(json).not.toMatch(/STARBUCKS|WHOLE FOODS|BEGINNING BALANCE/i);
+    expect(json).not.toMatch(/EXAMPLE EMPLOYER PAYROLL|EXAMPLE GROCERY STORE|BEGINNING BALANCE/i);
     expect(d.importerId).toBe('bank-of-america-checking');
     expect(d.headerNames.join('')).not.toMatch(/Date|Description|Amount/i);
   });

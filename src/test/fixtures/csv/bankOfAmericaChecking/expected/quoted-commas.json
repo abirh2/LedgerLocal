@@ -1,0 +1,57 @@
+{
+  "format": "MM/DD/YYYY",
+  "amountConvention": "signed",
+  "headerRowIndex": 6,
+  "summaryRowCount": 5,
+  "summary": {
+    "beginningBalanceCents": 123456,
+    "beginningBalanceDate": "2026-04-01",
+    "totalCreditsCents": 200000,
+    "totalDebitsCents": -123456,
+    "endingBalanceCents": 200000,
+    "endingBalanceDate": "2026-04-03"
+  },
+  "openingBalanceCount": 1,
+  "validNormalCount": 2,
+  "invalidCount": 0,
+  "recoveredCount": 0,
+  "openingBalances": [
+    {
+      "postedDate": "2026-04-01",
+      "runningBalanceCents": 123456,
+      "amountCents": null,
+      "status": "opening_balance"
+    }
+  ],
+  "transactions": [
+    {
+      "postedDate": "2026-04-02",
+      "description": "EXAMPLE MERCHANT, MAIN STREET",
+      "amountCents": 200000,
+      "runningBalanceCents": 323456,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-04-02",
+      "description": "EXAMPLE STORE, AISLE 3",
+      "amountCents": -123456,
+      "runningBalanceCents": 200000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    }
+  ],
+  "runningBalanceValidation": {
+    "mismatchCount": 0,
+    "firstMismatch": null
+  },
+  "summaryValidation": {
+    "arithmeticOk": true,
+    "endingMatchesLastRunning": true
+  },
+  "reconciliationStatus": "ok"
+}

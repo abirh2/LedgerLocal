@@ -1,0 +1,87 @@
+{
+  "format": "MM/DD/YYYY",
+  "amountConvention": "signed",
+  "headerRowIndex": 6,
+  "summaryRowCount": 5,
+  "summary": {
+    "beginningBalanceCents": 14000,
+    "beginningBalanceDate": "2026-12-05",
+    "totalCreditsCents": 4000,
+    "totalDebitsCents": -2500,
+    "endingBalanceCents": 15500,
+    "endingBalanceDate": "2026-12-15"
+  },
+  "openingBalanceCount": 1,
+  "validNormalCount": 5,
+  "invalidCount": 0,
+  "recoveredCount": 0,
+  "openingBalances": [
+    {
+      "postedDate": "2026-12-05",
+      "runningBalanceCents": 14000,
+      "amountCents": null,
+      "status": "opening_balance"
+    }
+  ],
+  "transactions": [
+    {
+      "postedDate": "2026-12-05",
+      "description": "EXAMPLE CAFE",
+      "amountCents": -1000,
+      "runningBalanceCents": 13000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-12-05",
+      "description": "EXAMPLE CAFE",
+      "amountCents": -1000,
+      "runningBalanceCents": 12000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-12-08",
+      "description": "EXAMPLE SIDE HUSTLE",
+      "amountCents": 2500,
+      "runningBalanceCents": 14500,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-12-12",
+      "description": "EXAMPLE NEW CREDIT",
+      "amountCents": 1500,
+      "runningBalanceCents": 16000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-12-15",
+      "description": "EXAMPLE LATE FEE",
+      "amountCents": -500,
+      "runningBalanceCents": 15500,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    }
+  ],
+  "runningBalanceValidation": {
+    "mismatchCount": 0,
+    "firstMismatch": null
+  },
+  "summaryValidation": {
+    "arithmeticOk": true,
+    "endingMatchesLastRunning": true
+  },
+  "reconciliationStatus": "ok"
+}

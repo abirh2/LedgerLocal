@@ -1,0 +1,62 @@
+{
+  "format": "MM/DD/YYYY",
+  "amountConvention": "signed",
+  "headerRowIndex": 6,
+  "summaryRowCount": 5,
+  "summary": {
+    "beginningBalanceCents": 10000,
+    "beginningBalanceDate": "2026-09-01",
+    "totalCreditsCents": 5000,
+    "totalDebitsCents": -1000,
+    "endingBalanceCents": 14000,
+    "endingBalanceDate": "2026-09-03"
+  },
+  "openingBalanceCount": 1,
+  "validNormalCount": 2,
+  "invalidCount": 0,
+  "recoveredCount": 0,
+  "openingBalances": [
+    {
+      "postedDate": "2026-09-01",
+      "runningBalanceCents": 10000,
+      "amountCents": null,
+      "status": "opening_balance"
+    }
+  ],
+  "transactions": [
+    {
+      "postedDate": "2026-09-02",
+      "description": "EXAMPLE GOOD CREDIT",
+      "amountCents": 5000,
+      "runningBalanceCents": 15000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-09-03",
+      "description": "EXAMPLE MISMATCHED DEBIT",
+      "amountCents": -1000,
+      "runningBalanceCents": 14001,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    }
+  ],
+  "runningBalanceValidation": {
+    "mismatchCount": 1,
+    "firstMismatch": {
+      "rowIndex": 9,
+      "expectedCents": 14000,
+      "actualCents": 14001,
+      "differenceCents": 1
+    }
+  },
+  "summaryValidation": {
+    "arithmeticOk": true,
+    "endingMatchesLastRunning": false
+  },
+  "reconciliationStatus": "mismatch"
+}

@@ -1,0 +1,13 @@
+Description,,Summary Amt.
+Beginning balance as of 12/05/2026,,"140.00"
+Total credits,,"40.00"
+Total debits,,"-25.00"
+Ending balance as of 12/15/2026,,"155.00"
+
+Date,Description,Amount,Running Bal.
+12/05/2026,Beginning balance as of 12/05/2026,,"140.00"
+12/05/2026,"EXAMPLE CAFE","-10.00","130.00"
+12/05/2026,"EXAMPLE CAFE","-10.00","120.00"
+12/08/2026,"EXAMPLE SIDE HUSTLE","25.00","145.00"
+12/12/2026,"EXAMPLE NEW CREDIT","15.00","160.00"
+12/15/2026,"EXAMPLE LATE FEE","-5.00","155.00"

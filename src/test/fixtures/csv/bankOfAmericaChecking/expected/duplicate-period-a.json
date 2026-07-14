@@ -1,0 +1,77 @@
+{
+  "format": "MM/DD/YYYY",
+  "amountConvention": "signed",
+  "headerRowIndex": 6,
+  "summaryRowCount": 5,
+  "summary": {
+    "beginningBalanceCents": 10000,
+    "beginningBalanceDate": "2026-12-01",
+    "totalCreditsCents": 7500,
+    "totalDebitsCents": -2000,
+    "endingBalanceCents": 15500,
+    "endingBalanceDate": "2026-12-10"
+  },
+  "openingBalanceCount": 1,
+  "validNormalCount": 4,
+  "invalidCount": 0,
+  "recoveredCount": 0,
+  "openingBalances": [
+    {
+      "postedDate": "2026-12-01",
+      "runningBalanceCents": 10000,
+      "amountCents": null,
+      "status": "opening_balance"
+    }
+  ],
+  "transactions": [
+    {
+      "postedDate": "2026-12-02",
+      "description": "EXAMPLE PAYROLL A",
+      "amountCents": 5000,
+      "runningBalanceCents": 15000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-12-05",
+      "description": "EXAMPLE CAFE",
+      "amountCents": -1000,
+      "runningBalanceCents": 14000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-12-05",
+      "description": "EXAMPLE CAFE",
+      "amountCents": -1000,
+      "runningBalanceCents": 13000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-12-08",
+      "description": "EXAMPLE SIDE HUSTLE",
+      "amountCents": 2500,
+      "runningBalanceCents": 15500,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    }
+  ],
+  "runningBalanceValidation": {
+    "mismatchCount": 0,
+    "firstMismatch": null
+  },
+  "summaryValidation": {
+    "arithmeticOk": true,
+    "endingMatchesLastRunning": true
+  },
+  "reconciliationStatus": "ok"
+}

@@ -1,0 +1,12 @@
+Description,,Summary Amt.
+Beginning balance as of 12/01/2026,,"100.00"
+Total credits,,"75.00"
+Total debits,,"-20.00"
+Ending balance as of 12/10/2026,,"155.00"
+
+Date,Description,Amount,Running Bal.
+12/01/2026,Beginning balance as of 12/01/2026,,"100.00"
+12/02/2026,"EXAMPLE PAYROLL A","50.00","150.00"
+12/05/2026,"EXAMPLE CAFE","-10.00","140.00"
+12/05/2026,"EXAMPLE CAFE","-10.00","130.00"
+12/08/2026,"EXAMPLE SIDE HUSTLE","25.00","155.00"

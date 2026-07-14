@@ -174,7 +174,7 @@ Typical layout signals:
 
 Modules: `detect.ts`, `parseSummary.ts`, `normalize.ts`, `validateBalances.ts`, `index.ts`.
 
-Fictional fixtures: `src/test/fixtures/csv/bankOfAmericaChecking/`.
+Fictional fixtures: `src/test/fixtures/csv/bankOfAmericaChecking/` (e.g. `standard.csv`, `shifted-header.csv`, overlap pair `duplicate-period-a.csv` / `duplicate-period-b.csv`). Expected normalization snapshots: `expected/*.json`. Merchant descriptions in fixtures use an `EXAMPLE …` prefix — never real export text.
 
 ---
 
@@ -191,5 +191,5 @@ Update keyword lists in `src/pages/ImportsPage.tsx` where the fallback column gu
 
 ### Writing Importer Tests
 - Unit: `src/lib/importers/pipeline/pipeline.test.ts`, `src/lib/importers/bankOfAmericaChecking/*.test.ts`, `src/lib/importUtils.test.ts`
-- E2E: `tests/e2e/csv-import.spec.ts` (generic mapping path)
+- E2E: `tests/e2e/csv-import.spec.ts` (generic + observed BoA checking path)
 - Run: `npm run test`

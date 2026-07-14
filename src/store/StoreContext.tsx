@@ -74,9 +74,10 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
 
   const clearFilters = () => setFilters({});
 
-  const loadData = async () => {
-    setIsLoading(true);
-    
+  const loadData = async (opts?: { quiet?: boolean }) => {
+    // ponytail: quiet refresh must not flip isLoading — App unmounts the active page while loading.
+    if (!opts?.quiet) setIsLoading(true);
+
     const profileId = await systemApi.getCurrentProfileId();
     setCurrentProfileId(profileId);
     
@@ -167,7 +168,7 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const refreshData = async () => {
-    await loadData();
+    await loadData({ quiet: true });
   };
 
   const resetDemoData = async () => {

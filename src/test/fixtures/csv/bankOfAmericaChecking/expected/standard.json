@@ -1,0 +1,97 @@
+{
+  "format": "MM/DD/YYYY",
+  "amountConvention": "signed",
+  "headerRowIndex": 6,
+  "summaryRowCount": 5,
+  "summary": {
+    "beginningBalanceCents": 100000,
+    "beginningBalanceDate": "2026-01-01",
+    "totalCreditsCents": 250000,
+    "totalDebitsCents": -60000,
+    "endingBalanceCents": 290000,
+    "endingBalanceDate": "2026-01-31"
+  },
+  "openingBalanceCount": 1,
+  "validNormalCount": 6,
+  "invalidCount": 0,
+  "recoveredCount": 0,
+  "openingBalances": [
+    {
+      "postedDate": "2026-01-01",
+      "runningBalanceCents": 100000,
+      "amountCents": null,
+      "status": "opening_balance"
+    }
+  ],
+  "transactions": [
+    {
+      "postedDate": "2026-01-02",
+      "description": "EXAMPLE EMPLOYER PAYROLL",
+      "amountCents": 200000,
+      "runningBalanceCents": 300000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-01-05",
+      "description": "EXAMPLE GROCERY STORE",
+      "amountCents": -7525,
+      "runningBalanceCents": 292475,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-01-08",
+      "description": "EXAMPLE CARD PAYMENT",
+      "amountCents": -30000,
+      "runningBalanceCents": 262475,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-01-15",
+      "description": "EXAMPLE EMPLOYER PAYROLL",
+      "amountCents": 50000,
+      "runningBalanceCents": 312475,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-01-20",
+      "description": "EXAMPLE UTILITY PAYMENT",
+      "amountCents": -12475,
+      "runningBalanceCents": 300000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    },
+    {
+      "postedDate": "2026-01-25",
+      "description": "EXAMPLE TRANSFER",
+      "amountCents": -10000,
+      "runningBalanceCents": 290000,
+      "status": "new",
+      "recovered": false,
+      "kind": "transaction",
+      "warnings": []
+    }
+  ],
+  "runningBalanceValidation": {
+    "mismatchCount": 0,
+    "firstMismatch": null
+  },
+  "summaryValidation": {
+    "arithmeticOk": true,
+    "endingMatchesLastRunning": true
+  },
+  "reconciliationStatus": "ok"
+}

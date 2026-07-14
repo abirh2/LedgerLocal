@@ -1,0 +1,14 @@
+Description,,Summary Amt.
+Beginning balance as of 01/01/2026,,"1,000.00"
+Total credits,,"2,500.00"
+Total debits,,"-600.00"
+Ending balance as of 01/31/2026,,"2,900.00"
+
+Date,Description,Amount,Running Bal.
+01/01/2026,Beginning balance as of 01/01/2026,,"1,000.00"
+01/02/2026,"EXAMPLE EMPLOYER PAYROLL","2,000.00","3,000.00"
+01/05/2026,"EXAMPLE GROCERY STORE","-75.25","2,924.75"
+01/08/2026,"EXAMPLE CARD PAYMENT","-300.00","2,624.75"
+01/15/2026,"EXAMPLE EMPLOYER PAYROLL","500.00","3,124.75"
+01/20/2026,"EXAMPLE UTILITY PAYMENT","-124.75","3,000.00"
+01/25/2026,"EXAMPLE TRANSFER","-100.00","2,900.00"
